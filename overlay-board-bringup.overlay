@@ -1,0 +1,181 @@
+/*
+ * =====================================
+ * Board Bring-up Unified DeviceTree File
+ * =====================================
+ *
+ * 本文件整合了当前板级联调需要的所有外设定义：
+ * 1) nPM1300 (I2C):
+ *    - SCL: P0.06
+ *    - SDA: P0.07
+ * 2) ICM-42688-P (I2C raw read by app):
+ *    - SCL: P0.03
+ *    - SDA: P0.02
+ * 3) GD25Q256E SPI NOR:
+ *    - CS:   P0.20
+ *    - SCK:  P0.13
+ *    - MOSI: P0.11
+ *    - MISO: P0.12
+ * 4) 用户 LED:
+ *    - LED0: P0.00
+ *    - LED1: P0.01
+ *
+ * 说明：
+ * - ICM 当前用主程序中的“原始 I2C 寄存器读”方式测试，
+ *   所以这里不绑定 Zephyr ICM 驱动节点，仅配置 I2C 总线。
+ * - i2c3 与 spi3 共享实例，启用 i2c3 时要禁用 spi3。
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
+
+/ {
+	aliases {
+		pmic = &npm1300_pmic;
+	};
+
+	test_leds: gpio_leds {
+		compatible = "gpio-leds";
+
+		user_led0: user_led_0 {
+			gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+			label = "USER_LED0";
+		};
+
+		user_led1: user_led_1 {
+			gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+			label = "USER_LED1";
+		};
+	};
+};
+
+&pinctrl {
+	/* nPM1300 I2C2: P0.06/P0.07 */
+	i2c2_custom_default: i2c2_custom_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 6)>,
+				<NRF_PSEL(TWIM_SDA, 0, 7)>;
+			bias-pull-up;
+		};
+	};
+
+	i2c2_custom_sleep: i2c2_custom_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 6)>,
+				<NRF_PSEL(TWIM_SDA, 0, 7)>;
+			low-power-enable;
+		};
+	};
+
+	/* ICM-42688 I2C3: P0.03/P0.02 */
+	i2c3_test_default: i2c3_test_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 3)>,
+				<NRF_PSEL(TWIM_SDA, 0, 2)>;
+			bias-pull-up;
+		};
+	};
+
+	i2c3_test_sleep: i2c3_test_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 3)>,
+				<NRF_PSEL(TWIM_SDA, 0, 2)>;
+			low-power-enable;
+		};
+	};
+
+	/* GD25Q256E SPI1: SCK/MOSI/MISO = P0.13/P0.11/P0.12 */
+	spi1_test_default: spi1_test_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 13)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 11)>,
+				<NRF_PSEL(SPIM_MISO, 0, 12)>;
+		};
+	};
+
+	spi1_test_sleep: spi1_test_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 13)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 11)>,
+				<NRF_PSEL(SPIM_MISO, 0, 12)>;
+			low-power-enable;
+		};
+	};
+
+};
+
+/* nPM1300 */
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+	pinctrl-0 = <&i2c2_custom_default>;
+	pinctrl-1 = <&i2c2_custom_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	npm1300_pmic: pmic@6b {
+		compatible = "nordic,npm1300";
+		reg = <0x6b>;
+
+		regulators {
+			compatible = "nordic,npm1300-regulator";
+
+			/* VOUT1/BUCK1: raise from default 1.8V to 3.0V for GD25Q256E */
+			BUCK1 {
+				regulator-min-microvolt = <1000000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-init-microvolt = <3000000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+		};
+
+		npm1300_charger: charger {
+			compatible = "nordic,npm1300-charger";
+			term-microvolt = <4150000>;
+			term-warm-microvolt = <4000000>;
+			current-microamp = <150000>;
+			dischg-limit-microamp = <1000000>;
+			vbus-limit-microamp = <500000>;
+			/* 本板无 NTC，置 0 禁用温度测量路径 */
+			thermistor-ohms = <0>;
+			thermistor-beta = <3380>;
+			charging-enable;
+		};
+	};
+};
+
+/* ICM-42688 I2C总线 */
+&i2c3 {
+	status = "okay";
+	clock-frequency = <400000>;
+	pinctrl-0 = <&i2c3_test_default>;
+	pinctrl-1 = <&i2c3_test_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* i2c3 与 spi3 同实例，启用 i2c3 时需关掉 spi3 */
+&spi3 {
+	status = "disabled";
+};
+
+/* GD25Q256E on SPI1 */
+&spi1 {
+	status = "okay";
+	pinctrl-0 = <&spi1_test_default>;
+	pinctrl-1 = <&spi1_test_sleep>;
+	pinctrl-names = "default", "sleep";
+	cs-gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
+
+	gd25q256e: flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		/* Bring-up first: very low SPI clock for maximum signal margin */
+		spi-max-frequency = <250000>;
+		jedec-id = [c8 40 19];
+		/* Clear common block-protect bits (BP[0..3]) on init */
+		has-lock = <0x3c>;
+		/* Also clear potential global block protection latch */
+		requires-ulbpr;
+		size = <0x2000000>;
+		status = "okay";
+	};
+};

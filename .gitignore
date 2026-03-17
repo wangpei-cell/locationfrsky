@@ -1,6 +1,7 @@
 # editors
 *.swp
 *~
+.history/
 
 # build
 /build*/
